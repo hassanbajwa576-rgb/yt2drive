@@ -1,0 +1,14 @@
+# secrets - never commit
+credentials.json
+token.json
+client_secret*.json
+*.env
+.env
+
+# runtime output
+downloads/
+links.csv
+*.log
+*_done.txt
+.deps_ok
+__pycache__/
