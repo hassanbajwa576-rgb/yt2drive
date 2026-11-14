@@ -16,6 +16,14 @@ export default async function handler(req, res) {
     skip_done: o.skip_done !== false,
     caption: String(o.caption || '').slice(0, 500),
   };
+  const sc = b.schedule || {};
+  const schedule = {
+    enabled: !!sc.enabled,
+    instagram: !!sc.instagram,
+    linkedin: !!sc.linkedin,
+    interval: Math.max(1, Math.min(10080, Number(sc.interval) || 60)),
+    startTime: typeof sc.startTime === 'string' && !Number.isNaN(Date.parse(sc.startTime)) ? sc.startTime : null,
+  };
   let cmd;
   if (b.type === 'find') {
     cmd = {
@@ -25,11 +33,12 @@ export default async function handler(req, res) {
       cc_only: !!b.cc_only,
       auto: !!b.auto,
       opts,
+      schedule,
     };
   } else if (b.type === 'start') {
     const urls = (Array.isArray(b.urls) ? b.urls : []).map(String).filter((u) => URL_OK.test(u)).slice(0, 200);
     if (!urls.length) return res.status(400).json({ error: 'No valid links' });
-    cmd = { type: 'start', urls, opts };
+    cmd = { type: 'start', urls, opts, schedule };
   } else if (b.type === 'cancel') {
     cmd = { type: 'cancel' };
   } else {

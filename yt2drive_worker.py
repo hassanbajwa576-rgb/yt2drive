@@ -6,7 +6,8 @@ The web panel on Vercel only sends commands (find / start / cancel). This worker
 does the real work with the same engine as the desktop app (search, download, convert, upload
 to your Google Drive) and posts live progress back so the web page can show the bars.
 
-Setup: worker_config.json next to this file:   {"url": "https://YOUR-PANEL.vercel.app", "key": "WORKER_KEY"}
+Setup: worker_config.json next to this file:   {"url": "https://YOUR-PANEL.vercel.app", "key": "WORKER_KEY",
+                                 "scheduler": {"url": "https://universalscheduler.vercel.app", "key": "SCHEDULER_API_KEY"}}
 Run:   double-click RUN_WORKER.bat
 """
 import json
@@ -14,6 +15,7 @@ import os
 import queue
 import sys
 import threading
+import datetime as dt
 import time
 import urllib.error
 import urllib.request
@@ -55,9 +57,76 @@ class Panel:
         self._req("POST", state)
 
 
+HASHTAGS = ["#reels", "#viral", "#video"]
+
+
+def post_json(url, key, body):
+    r = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST", headers={
+        "Authorization": f"Bearer {key}", "Content-Type": "application/json", "User-Agent": "yt2drive-worker/1"})
+    try:
+        with urllib.request.urlopen(r, timeout=60) as resp:
+            return resp.status, json.loads(resp.read().decode() or "{}")
+    except urllib.error.HTTPError as e:
+        try:
+            return e.code, json.loads(e.read().decode() or "{}")
+        except Exception:
+            return e.code, {"error": str(e)}
+
+
+def make_caption(title, url):
+    title = (title or "").strip()
+    if len(title) > 150:
+        title = title[:147] + "..."
+    return f"{title}\n\nSource: {url}\n\nFollow for more."
+
+
+def schedule_items(items, sched, scfg, say):
+    """Queue every finished upload on the Universal Scheduler (Instagram and/or LinkedIn)."""
+    if not scfg or not scfg.get("key"):
+        say("Not scheduled: no scheduler key in worker_config.json")
+        return
+    base = scfg["url"].rstrip("/")
+    posts = []
+    for it in items:
+        link = it.get("link")
+        if not (it["status"].startswith("Done") and link):
+            continue
+        posts.append({"caption": make_caption(it["title"], it["url"]), "video_url": link, "hashtags": HASHTAGS})
+    if not posts:
+        say("Nothing to schedule (no finished uploads)")
+        return
+    interval = max(1, int(sched.get("interval", 60)))
+    if sched.get("startTime"):
+        start = dt.datetime.fromisoformat(sched["startTime"].replace("Z", "+00:00"))
+        if start.tzinfo is None:
+            start = start.replace(tzinfo=dt.timezone.utc)
+    else:
+        start = dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=2)
+    results = []
+    for platform, path in (("Instagram", "/api/posts"), ("LinkedIn", "/api/linkedin/posts")):
+        if not sched.get(platform.lower()):
+            continue
+        ok_total, err = 0, ""
+        for b in range(0, len(posts), 50):
+            chunk = posts[b:b + 50]
+            when = start + dt.timedelta(minutes=interval * b)
+            code, data = post_json(base + path, scfg["key"], {
+                "posts": chunk, "interval": interval, "startTime": when.isoformat().replace("+00:00", "Z")})
+            if code == 200 and data.get("success"):
+                ok_total += len(chunk)
+            else:
+                err = f"{code}: {data.get('error', 'failed')}"
+                break
+        results.append(f"{platform}: {ok_total} scheduled" + (f" ({err})" if err else ""))
+    say("Scheduled. " + "  ·  ".join(results) if results else "No platform selected for scheduling")
+
+
+
 class Worker:
-    def __init__(self, panel):
+    def __init__(self, panel, scfg=None):
         self.panel = panel
+        self.scfg = scfg
+        self.schedule = None
         self.q = queue.Queue()
         self.cancel = threading.Event()
         self.busy = False
@@ -110,6 +179,9 @@ class Worker:
             s["log"] = (s["log"] + [ev[1]])[-60:]
         elif k == "global":
             pass
+        elif k == "sched":
+            s["title"] = ev[1]
+            s["log"] = (s["log"] + [ev[1]])[-60:]
         elif k == "folder":
             s["folder"] = ev[1]
         elif k == "find":
@@ -205,6 +277,17 @@ class Worker:
             if not self.cancel.is_set():
                 s["overall"] = {"pct": 100, "info": f"took {A.fmt_eta(time.time() - self.t_start)}"}
             self.busy = False
+            sc = self.schedule
+            if sc and sc.get("enabled") and ok and not self.cancel.is_set():
+                s["title"] += "  ·  scheduling…"
+                items = [dict(i) for i in self.items]
+                threading.Thread(target=self._schedule_thread, args=(items, sc), daemon=True).start()
+
+    def _schedule_thread(self, items, sc):
+        try:
+            schedule_items(items, sc, self.scfg, lambda m: self.q.put(("sched", m)))
+        except Exception as e:
+            self.q.put(("sched", f"Scheduling failed: {e}"))
 
     # ------------------------------------------------------------ jobs
     auto_after_find = False
@@ -247,8 +330,10 @@ class Worker:
         elif self.busy:
             return  # ignore a new job while one is running
         elif t == "find":
+            self.schedule = c.get("schedule")
             self.start_find(c)
         elif t == "start":
+            self.schedule = c.get("schedule")
             self.start_job(c.get("urls", []), c.get("opts", {}))
 
     # ------------------------------------------------------------ main loop
@@ -281,4 +366,5 @@ class Worker:
 
 
 if __name__ == "__main__":
-    Worker(Panel(load_cfg())).run()
+    _cfg = load_cfg()
+    Worker(Panel(_cfg), _cfg.get("scheduler")).run()

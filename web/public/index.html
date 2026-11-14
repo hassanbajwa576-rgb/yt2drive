@@ -81,6 +81,20 @@ a.lnk{color:var(--accent);text-decoration:none;font-size:12.5px;cursor:pointer}
 </div>
 
 <div class="card">
+  <label class="t">Schedule after upload</label>
+  <div class="row">
+    <label class="chk"><input id="sOn" type="checkbox" checked> Schedule automatically when uploads finish</label>
+    <label class="chk"><input id="sIg" type="checkbox" checked> Instagram</label>
+    <label class="chk"><input id="sLi" type="checkbox" checked> LinkedIn</label>
+  </div>
+  <div class="row" style="margin-top:10px">
+    <label class="chk">Every <input id="sInt" type="number" min="1" value="60" style="width:80px"> minutes</label>
+    <label class="chk">Start <input id="sStart" type="datetime-local" style="width:auto"></label>
+    <small class="hint">Leave Start empty to begin in about 2 minutes. Instagram may block posts closer than ~60 minutes apart.</small>
+  </div>
+</div>
+
+<div class="card">
   <label class="t">Video links (one per line)</label>
   <textarea id="links" placeholder="https://www.youtube.com/watch?v=..."></textarea>
   <div class="row" style="margin-top:10px">
@@ -183,12 +197,14 @@ async function send(body, okMsg) {
   setTimeout(() => ($('msg').textContent = ''), 4000);
   setTimeout(tick, 2500);
 }
+const schedule = () => ({ enabled: $('sOn').checked, instagram: $('sIg').checked, linkedin: $('sLi').checked,
+  interval: Math.max(1, +$('sInt').value || 60), startTime: $('sStart').value ? new Date($('sStart').value).toISOString() : null });
 const opts = () => ({ reencode: $('reencode').checked, keep: $('keep').checked, skip_done: $('skip').checked, caption: $('caption').value.trim() });
-$('btnFind').onclick = () => send({ type: 'find', count: +$('count').value || 50, topics: $('topics').value.trim(), cc_only: $('cc').checked, auto: $('auto').checked, opts: opts() }, 'Search sent to your PC…');
+$('btnFind').onclick = () => send({ type: 'find', count: +$('count').value || 50, topics: $('topics').value.trim(), cc_only: $('cc').checked, auto: $('auto').checked, opts: opts(), schedule: schedule() }, 'Search sent to your PC…');
 $('btnStart').onclick = () => {
   const urls = $('links').value.split(/\s+/).filter((u) => /^https?:\/\//i.test(u));
   if (!urls.length) { $('msg').textContent = 'Paste at least one link'; return; }
-  send({ type: 'start', urls, opts: opts() }, `Sent ${urls.length} links to your PC…`);
+  send({ type: 'start', urls, opts: opts(), schedule: schedule() }, `Sent ${urls.length} links to your PC…`);
 };
 $('btnCancel').onclick = () => send({ type: 'cancel' }, 'Cancelling…');
 $('rows').onclick = (e) => { const a = e.target.closest('a[data-i]'); if (a && last) copy(last.items[+a.dataset.i].link, 'Link copied'); };
