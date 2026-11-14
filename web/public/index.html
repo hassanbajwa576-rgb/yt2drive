@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>YT to Drive</title>
+<style>
+:root{--bg:#0e1015;--card:#161a22;--card2:#1b202a;--line:#2a3040;--fg:#e9ecf3;--muted:#8a93a8;--accent:#6d8dff;--green:#37d29a;--amber:#f2b94b;--red:#ff6b6b;--violet:#b48cff;--trough:#242a37}
+@media (prefers-color-scheme:light){:root{--bg:#f4f6fa;--card:#fff;--card2:#eef1f7;--line:#d9deea;--fg:#171b26;--muted:#667089;--trough:#e3e7f1}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:980px;margin:0 auto;padding:18px 16px 60px}
+header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px}
+h1{font-size:22px;margin:0}
+.sub{color:var(--muted);font-size:13px}
+.pill{padding:5px 12px;border-radius:99px;background:var(--card2);font-size:13px;font-weight:600;color:var(--muted)}
+.pill.on{color:var(--green)}.pill.off{color:var(--red)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin:10px 0}
+label.t{font-weight:600;font-size:13px;display:block;margin-bottom:6px}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+input[type=text],input[type=password],input[type=number],textarea{background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:9px 10px;font:inherit;width:100%}
+textarea{font-family:ui-monospace,Consolas,monospace;font-size:12.5px;min-height:90px;resize:vertical}
+input:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:-1px}
+.chk{display:flex;gap:6px;align-items:center;font-size:13.5px;color:var(--fg)}
+button{font:inherit;font-weight:600;border:0;border-radius:8px;padding:9px 16px;cursor:pointer;background:var(--card2);color:var(--fg)}
+button:hover{filter:brightness(1.15)}
+button.primary{background:var(--accent);color:#0b1020}
+button.danger{background:#3a2328;color:var(--red)}
+button:disabled{opacity:.45;cursor:not-allowed}
+.grow{flex:1;min-width:140px}
+.step{display:grid;grid-template-columns:92px 1fr 52px;gap:4px 12px;align-items:center;margin-top:10px}
+.step .nm{font-weight:600;font-size:13.5px}
+.bar{height:14px;border-radius:7px;background:var(--trough);overflow:hidden}
+.bar i{display:block;height:100%;width:0;border-radius:7px;transition:width .5s}
+.pct{text-align:right;font-weight:700;font-size:14px;color:var(--muted)}
+.pct.done{color:var(--green)}
+.info{grid-column:2;font-size:12px;color:var(--muted);min-height:15px}
+.title{font-weight:700;font-size:16px;word-break:break-word}
+.cnt{color:var(--muted);font-weight:600;font-size:13px}
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th{color:var(--muted);font-size:12px;text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}
+td{padding:7px 8px;border-bottom:1px solid var(--line);vertical-align:top;word-break:break-word}
+td.n{width:34px;color:var(--muted)}td.sz{white-space:nowrap;color:var(--muted)}
+.t-done{color:var(--green)}.t-fail{color:var(--red)}.t-active{color:var(--accent)}.t-warn{color:var(--amber)}.t-skip,.t-queued{color:var(--muted)}
+.tbl{max-height:360px;overflow:auto}
+small.hint{color:var(--muted);font-size:12px}
+#login{max-width:360px;margin:12vh auto 0}
+.hidden{display:none!important}
+pre#log{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px;max-height:200px;overflow:auto;font-size:11.5px;color:var(--muted);white-space:pre-wrap;margin:8px 0 0}
+a.lnk{color:var(--accent);text-decoration:none;font-size:12.5px;cursor:pointer}
+@media (max-width:560px){.step{grid-template-columns:78px 1fr 44px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div id="login" class="card hidden">
+  <h1>YT → Drive</h1>
+  <p class="sub">Enter the panel password.</p>
+  <input id="pw" type="password" placeholder="Password" autocomplete="current-password">
+  <div style="margin-top:10px"><button class="primary" id="btnLogin" style="width:100%">Sign in</button></div>
+  <p id="loginErr" class="t-fail" style="font-size:13px;min-height:18px"></p>
+</div>
+
+<div id="app" class="hidden">
+<header>
+  <div><h1>YT → Drive</h1><div class="sub">Search, download, upload to Google Drive and copy direct MP4 links.</div></div>
+  <div class="row"><span id="worker" class="pill off">PC: checking…</span><span id="phase" class="pill">Idle</span><button id="btnOut">Sign out</button></div>
+</header>
+
+<div class="card">
+  <label class="t">Find videos</label>
+  <div class="row">
+    <div style="width:90px"><input id="count" type="number" min="1" max="200" value="50" aria-label="How many"></div>
+    <div class="grow" style="flex:3"><input id="topics" type="text" placeholder="Topics, comma separated (empty = built-in art topics)"></div>
+    <label class="chk"><input id="cc" type="checkbox" checked> Creative Commons only</label>
+    <label class="chk"><input id="auto" type="checkbox" checked> Upload right after</label>
+    <button class="primary" id="btnFind">Find videos</button>
+  </div>
+  <small class="hint">Cartoons and other non-CC videos: untick Creative Commons and type topics, for example <i>spongebob funny moments, tom and jerry clips</i>.</small>
+</div>
+
+<div class="card">
+  <label class="t">Video links (one per line)</label>
+  <textarea id="links" placeholder="https://www.youtube.com/watch?v=..."></textarea>
+  <div class="row" style="margin-top:10px">
+    <label class="chk"><input id="reencode" type="checkbox"> Re-encode for Instagram</label>
+    <label class="chk"><input id="keep" type="checkbox"> Keep local files</label>
+    <label class="chk"><input id="skip" type="checkbox" checked> Skip links already uploaded</label>
+    <input id="caption" class="grow" type="text" placeholder="Caption (saved in links.csv)">
+  </div>
+  <div class="row" style="margin-top:10px">
+    <button class="primary" id="btnStart">▶ Start</button>
+    <button class="danger" id="btnCancel">Cancel</button>
+    <span id="msg" class="sub"></span>
+  </div>
+</div>
+
+<div class="card">
+  <div class="row" style="justify-content:space-between"><div class="title" id="title">Nothing running</div><div class="cnt" id="cnt"></div></div>
+  <div class="step"><div class="nm">Finding</div><div class="bar"><i id="b-find" style="background:var(--violet)"></i></div><div class="pct" id="p-find">—</div><div class="info" id="i-find"></div></div>
+  <div class="step"><div class="nm">Download</div><div class="bar"><i id="b-dl" style="background:var(--accent)"></i></div><div class="pct" id="p-dl">—</div><div class="info" id="i-dl"></div></div>
+  <div class="step"><div class="nm">Processing</div><div class="bar"><i id="b-pr" style="background:var(--amber)"></i></div><div class="pct" id="p-pr">—</div><div class="info" id="i-pr"></div></div>
+  <div class="step"><div class="nm">Upload</div><div class="bar"><i id="b-ul" style="background:var(--green)"></i></div><div class="pct" id="p-ul">—</div><div class="info" id="i-ul"></div></div>
+  <div class="step"><div class="nm">Overall</div><div class="bar"><i id="b-all" style="background:var(--accent)"></i></div><div class="pct" id="p-all">0%</div><div class="info" id="i-all"></div></div>
+</div>
+
+<div class="card">
+  <div class="row" style="justify-content:space-between;margin-bottom:6px">
+    <div class="title" style="font-size:14px">Queue &amp; results</div>
+    <div class="row"><button id="btnCopyAll">Copy all links</button><a class="lnk" id="logToggle">Show log</a></div>
+  </div>
+  <div class="tbl"><table><thead><tr><th>#</th><th>Video</th><th>Status</th><th>Size</th><th></th></tr></thead><tbody id="rows"></tbody></table></div>
+  <pre id="log" class="hidden"></pre>
+</div>
+</div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let last = null, polling = null;
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, { credentials: 'same-origin', ...opts,
+    headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'panel', ...(opts.headers || {}) } });
+  let data = {}; try { data = await r.json(); } catch {}
+  if (r.status === 401 && path !== '/api/login') showLogin();
+  return { ok: r.ok, status: r.status, data };
+}
+
+function showLogin() { clearInterval(polling); $('app').classList.add('hidden'); $('login').classList.remove('hidden'); $('pw').focus(); }
+function showApp() { $('login').classList.add('hidden'); $('app').classList.remove('hidden'); tick(); clearInterval(polling); polling = setInterval(tick, 1500); }
+
+$('btnLogin').onclick = async () => {
+  $('loginErr').textContent = '';
+  const r = await api('/api/login', { method: 'POST', body: JSON.stringify({ password: $('pw').value }) });
+  if (r.ok) { $('pw').value = ''; showApp(); } else $('loginErr').textContent = r.data.error || 'Could not sign in';
+};
+$('pw').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('btnLogin').click(); });
+$('btnOut').onclick = async () => { await api('/api/login', { method: 'DELETE' }); showLogin(); };
+
+function setBar(k, s, color) {
+  const b = $('b-' + k), p = $('p-' + k), i = $('i-' + k);
+  const pct = s && typeof s.pct === 'number' ? s.pct : null;
+  b.style.width = (pct ?? 0) + '%';
+  if (s && s.spin) { p.textContent = '…'; p.className = 'pct'; }
+  else if (pct === null) { p.textContent = '—'; p.className = 'pct'; }
+  else { p.textContent = Math.round(pct) + '%'; p.className = 'pct' + (pct >= 100 ? ' done' : ''); }
+  i.textContent = (s && s.info) || '';
+}
+
+function esc(t) { return String(t ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+function render(now, s) {
+  const online = s && now - s.updatedAt < 25000;
+  $('worker').textContent = online ? 'PC worker online' : 'PC worker offline';
+  $('worker').className = 'pill ' + (online ? 'on' : 'off');
+  if (!s) { $('phase').textContent = 'No data yet'; return; }
+  last = s;
+  $('phase').textContent = s.pill || 'Idle';
+  $('title').textContent = s.title || 'Nothing running';
+  $('cnt').textContent = s.count || '';
+  setBar('find', s.find); setBar('dl', s.dl); setBar('pr', s.pr); setBar('ul', s.ul); setBar('all', s.overall);
+  const busy = s.phase === 'finding' || s.phase === 'running';
+  $('btnFind').disabled = busy || !online; $('btnStart').disabled = busy || !online; $('btnCancel').disabled = !busy;
+  $('rows').innerHTML = (s.items || []).map((it, i) =>
+    `<tr><td class="n">${i + 1}</td><td>${esc(it.title)}</td><td class="t-${esc(it.tag || 'queued')}">${esc(it.status)}</td><td class="sz">${esc(it.size || '')}</td><td>${it.link ? `<a class="lnk" data-i="${i}">Copy</a>` : ''}</td></tr>`).join('');
+  $('log').textContent = (s.log || []).join('\n');
+  // when search finishes, show the found links
+  if (s.found && s.found.length && $('links').dataset.found !== String(s.foundId || '')) {
+    $('links').value = s.found.join('\n'); $('links').dataset.found = String(s.foundId || '');
+  }
+}
+
+async function tick() {
+  const r = await api('/api/state');
+  if (r.ok) render(r.data.now, r.data.state);
+}
+
+async function send(body, okMsg) {
+  const r = await api('/api/command', { method: 'POST', body: JSON.stringify(body) });
+  $('msg').textContent = r.ok ? okMsg : (r.data.error || 'Failed');
+  setTimeout(() => ($('msg').textContent = ''), 4000);
+  setTimeout(tick, 2500);
+}
+const opts = () => ({ reencode: $('reencode').checked, keep: $('keep').checked, skip_done: $('skip').checked, caption: $('caption').value.trim() });
+$('btnFind').onclick = () => send({ type: 'find', count: +$('count').value || 50, topics: $('topics').value.trim(), cc_only: $('cc').checked, auto: $('auto').checked, opts: opts() }, 'Search sent to your PC…');
+$('btnStart').onclick = () => {
+  const urls = $('links').value.split(/\s+/).filter((u) => /^https?:\/\//i.test(u));
+  if (!urls.length) { $('msg').textContent = 'Paste at least one link'; return; }
+  send({ type: 'start', urls, opts: opts() }, `Sent ${urls.length} links to your PC…`);
+};
+$('btnCancel').onclick = () => send({ type: 'cancel' }, 'Cancelling…');
+$('rows').onclick = (e) => { const a = e.target.closest('a[data-i]'); if (a && last) copy(last.items[+a.dataset.i].link, 'Link copied'); };
+$('btnCopyAll').onclick = () => { const l = ((last && last.items) || []).map((i) => i.link).filter(Boolean); if (l.length) copy(l.join('\n'), `Copied ${l.length} links`); };
+$('logToggle').onclick = () => { const h = $('log').classList.toggle('hidden'); $('logToggle').textContent = h ? 'Show log' : 'Hide log'; };
+async function copy(t, m) { try { await navigator.clipboard.writeText(t); $('msg').textContent = m; setTimeout(() => ($('msg').textContent = ''), 2500); } catch { prompt('Copy:', t); } }
+
+(async () => { const r = await api('/api/login'); r.data.authed ? showApp() : showLogin(); })();
+</script>
+</body>
+</html>

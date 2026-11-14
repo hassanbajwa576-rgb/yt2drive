@@ -12,3 +12,8 @@ links.csv
 *_done.txt
 .deps_ok
 __pycache__/
+
+# web panel worker config (contains the worker key)
+worker_config.json
+web/node_modules/
+web/.vercel/

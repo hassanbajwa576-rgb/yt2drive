@@ -47,3 +47,9 @@ DESKTOP APP (progress bars + built-in video search)
    - Live bars for search, download, processing, upload and overall progress.
    - Results go to links.csv, same as yt2drive.py.
    Try it without logging in:  python yt2drive_app.py --demo
+
+WEB PANEL (control it from any browser)
+   web/            = the panel (deployed on Vercel, password protected)
+   yt2drive_worker.py = runs on your PC and does the real work for the panel
+   Start the worker with RUN_WORKER.bat (INSTALL_WORKER_STARTUP.bat makes it start with Windows).
+   worker_config.json holds the panel URL and worker key. It is NOT committed to GitHub.
