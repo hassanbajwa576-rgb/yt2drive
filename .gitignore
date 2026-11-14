@@ -17,3 +17,5 @@ __pycache__/
 worker_config.json
 web/node_modules/
 web/.vercel/
+cookies.txt
+cookies_browser.txt

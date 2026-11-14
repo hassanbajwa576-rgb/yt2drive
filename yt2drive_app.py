@@ -155,9 +155,36 @@ ART_RE = re.compile(r"draw|sketch|paint|watercolou?r|acrylic|gouache|pastel|char
 BAD_RE = re.compile(r"logo|brand|nezuko|naruto|goku|anime|manga|berserk|squid ?game|titanic|k-?pop|newjeans|ive\b|bts|blackpink|celebrit|connery|horse|breyer|warhammer|disney|pokemon|pikachu|spider|batman|superman|barbie|mario|sonic|movie|film|trailer|roblox|fan ?anim|simpsons|marvel|avenger|iron ?man|poppy|sprunki|hazbin|ddlc|meme|prank|rhymes|squishmallow|minecraft|fortnite|skibidi|brainrot|indian|aunty|aunties|animal|cat\b|dog\b|house|wall\b|walls\b|body ?paint|face ?paint|yoga|fondant|apartment|decor|roof|fence|furniture|corpse|costume|dark souls|castlevania|molang|ratajkowski|jolie|fnaf|freddy|winx|totoro|jolie|karambit|knife|weapon|gun\b|blender|maya\b|makeup|tattoo|ishowspeed|kids|children|toddler|cartoon network|racing|drift|krishna|ganesh|ice spice|actor|singer|song\b|lyrics|bob ?ross|zelda|link\b|naruto|ghibli|sailor|umamusume|loid|spy x", re.I)
 
 
+def _cookie_conf():
+    """Optional YouTube sign-in for yt-dlp: cookies.txt next to the app, or a browser name in cookies_browser.txt."""
+    f = HERE / "cookies.txt"
+    if f.exists() and f.stat().st_size > 20:
+        return ("file", str(f))
+    b = HERE / "cookies_browser.txt"
+    if b.exists():
+        name = b.read_text(encoding="utf-8", errors="ignore").strip().lower()
+        if name:
+            return ("browser", name)
+    return None
+
+
+def _cookie_args():
+    c = _cookie_conf()
+    if not c:
+        return []
+    return ["--cookies", c[1]] if c[0] == "file" else ["--cookies-from-browser", c[1]]
+
+
+def _cookie_opts():
+    c = _cookie_conf()
+    if not c:
+        return {}
+    return {"cookiefile": c[1]} if c[0] == "file" else {"cookiesfrombrowser": (c[1],)}
+
+
 def _ytdlp(args):
     kw = {"creationflags": 0x08000000} if sys.platform.startswith("win") else {}
-    r = subprocess.run([sys.executable, "-m", "yt_dlp", *args], capture_output=True, text=True,
+    r = subprocess.run([sys.executable, "-m", "yt_dlp", *_cookie_args(), *args], capture_output=True, text=True,
                        encoding="utf-8", errors="ignore", **kw)
     return r.stdout
 
@@ -367,6 +394,7 @@ def run_real(urls, opts, q, cancel):
                 "noprogress": True,
                 "progress_hooks": [hook],
                 **({"ffmpeg_location": Y.FFMPEG} if Y.FFMPEG else {}),
+                **_cookie_opts(),
             }
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=True)
