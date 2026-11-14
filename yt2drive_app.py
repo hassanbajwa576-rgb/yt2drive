@@ -381,7 +381,14 @@ def run_real(urls, opts, q, cancel):
 
             # ---------------- process (ffmpeg)
             q.put(("stage", i, "process"))
-            path = Y.make_instagram_safe(path, force=opts["reencode"])
+            try:
+                path = Y.make_instagram_safe(path, force=opts["reencode"])
+            except OSError:
+                # Windows/antivirus can hold the source file; the converted copy is already written
+                alt = path.with_name(path.stem + "_ig.mp4")
+                if not alt.exists():
+                    raise
+                path = alt
             size = path.stat().st_size
             size_mb = size / 1_048_576
             if cancel.is_set():
@@ -411,8 +418,17 @@ def run_real(urls, opts, q, cancel):
             import datetime as dt
             Y.log([dt.datetime.now().isoformat(timespec="seconds"), url, title, file_id, link, ok,
                    f"{size_mb:.1f}", opts["caption"] or ""])
+            try:
+                media._fd.close()
+            except Exception:
+                pass
             if not opts["keep"]:
-                path.unlink(missing_ok=True)
+                for _ in range(5):
+                    try:
+                        path.unlink(missing_ok=True)
+                        break
+                    except OSError:
+                        time.sleep(1)  # file still locked (antivirus/Drive handle) - not worth failing the video
             if ok:
                 q.put(("done_item", i, link, True, size_mb))
             else:
