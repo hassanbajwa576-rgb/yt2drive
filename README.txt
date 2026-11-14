@@ -40,3 +40,10 @@ TIPS
 - Keep Reels under ~100 MB and 90 seconds for the most reliable results.
 - If "Link check: FAILED", the file is probably too large for Drive's direct link.
 - Keep credentials.json and token.json private. Never upload them to GitHub.
+
+DESKTOP APP (progress bars + built-in video search)
+   Double-click RUN_APP.bat  (or run CREATE_SHORTCUT.bat once for a desktop icon).
+   - Paste links or use "Find videos" to search YouTube (Creative Commons filter).
+   - Live bars for search, download, processing, upload and overall progress.
+   - Results go to links.csv, same as yt2drive.py.
+   Try it without logging in:  python yt2drive_app.py --demo
