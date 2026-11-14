@@ -33,6 +33,8 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 DEMO = "--demo" in sys.argv
 AUTO = "--autostart" in sys.argv
+TOPICS_ARG = sys.argv[sys.argv.index("--topics") + 1] if "--topics" in sys.argv[:-1] else ""
+NO_CC = "--no-cc" in sys.argv
 FIND_N = int(sys.argv[sys.argv.index("--find") + 1]) if "--find" in sys.argv[:-1] else None
 LINKS_FILE = sys.argv[sys.argv.index("--file") + 1] if "--file" in sys.argv[:-1] else None
 
@@ -575,8 +577,10 @@ class App(tk.Tk):
         self.topics = tk.Entry(fr, bg="#10131a", fg=FG, insertbackground=FG, relief="flat", bd=0,
                                font=(self.ff, 10), highlightthickness=1, highlightbackground=LINE,
                                highlightcolor=ACCENT)
+        if TOPICS_ARG:
+            self.topics.insert(0, TOPICS_ARG)
         self.topics.grid(row=0, column=3, sticky="ew", ipady=5, padx=(0, 14))
-        self.v_cc = tk.BooleanVar(value=True)
+        self.v_cc = tk.BooleanVar(value=not NO_CC)
         self.v_auto = tk.BooleanVar(value=True)
         ttk.Checkbutton(fr, text="Creative Commons only", variable=self.v_cc).grid(row=0, column=4, padx=(0, 10))
         ttk.Checkbutton(fr, text="Upload right after", variable=self.v_auto).grid(row=0, column=5, padx=(0, 14))
