@@ -57,3 +57,7 @@ WEB PANEL (control it from any browser)
 RUN_CARTOON50.bat: finds 50 non-Creative-Commons cartoon clips (SpongeBob, Tom and Jerry, Looney Tunes ...),
 uploads them to Drive, then schedules them on Instagram (affiliate captions) and LinkedIn (general captions)
 every 30 minutes starting about 2 minutes after the last upload. Needs worker_config.json (scheduler key).
+
+RUN_CREATORS50.bat: finds 50 non-Creative-Commons clips from famous content creators (MrBeast, IShowSpeed, Kai Cenat,
+Markiplier, PewDiePie ...), uploads them, then schedules them on Instagram (affiliate captions) and LinkedIn every 30 minutes.
+The start time is set after the previous queue; if you run it later than that, it starts about 2 minutes after the last upload.

@@ -16,6 +16,14 @@ HOOKS = ["Tag someone who needs to see this. 😂", "Wait for it. 😂", "Save t
          "Bring back the childhood. 📺", "Who remembers this? 😂"]
 
 
+KINDS = {
+    "cartoon": dict(ig="#cartoon #funny #memes #reels #viral #ad", li="#cartoon #funny #memes #reels #viral", hooks=HOOKS),
+    "creators": dict(ig="#creator #funny #viral #reels #trending #ad", li="#creator #funny #viral #reels #trending",
+                     hooks=["Tag the friend who watches this guy. 😂", "This one is a classic. 🔥", "Wait for the ending. 😂",
+                            "Save this for later. 🔖", "Who else remembers this? 😂"]),
+}
+
+
 def post_json(url, key, body):
     r = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST", headers={
         "Authorization": f"Bearer {key}", "Content-Type": "application/json", "User-Agent": "yt2drive/1"})
@@ -38,17 +46,17 @@ def _yt_url(url):
     return url
 
 
-def ig_caption(title, url, n):
+def ig_caption(title, url, n, hooks=HOOKS):
     name, code = AFFILIATE[n % len(AFFILIATE)]
     return (f"🛒 Digital art tool I recommend: {name}\n"
             f"👉 https://s.click.aliexpress.com/e/{code} (affiliate link, I earn a small commission at no cost to you #ad)\n"
-            f"🔗 Link also in bio.\n{HOOKS[n % len(HOOKS)]}\n"
+            f"🔗 Link also in bio.\n{hooks[n % len(hooks)]}\n"
             f"🎬 \"{_clean(title)}\" (source: {url})\n"
             f"Follow @hassanbajwa for practical AI tips, daily laughs and motivation. 🚀")
 
 
-def li_caption(title, url, n):
-    return (f"{HOOKS[n % len(HOOKS)]}\n🎬 \"{_clean(title)}\" (source: {url})\n"
+def li_caption(title, url, n, hooks=HOOKS):
+    return (f"{hooks[n % len(hooks)]}\n🎬 \"{_clean(title)}\" (source: {url})\n"
             f"Follow for practical AI tips, daily laughs and motivation. 🚀")
 
 
@@ -69,12 +77,16 @@ def schedule_items(items, sched, scfg, say):
             start = start.replace(tzinfo=dt.timezone.utc)
     else:
         start = dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=2)
+    earliest = dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=2)
+    if start < earliest:  # never schedule in the past
+        start = earliest
+    kind = KINDS.get(sched.get("kind"), KINDS["cartoon"])
     results = []
-    for platform, path, cap, tags in (("Instagram", "/api/posts", ig_caption, HASHTAGS_IG),
-                                      ("LinkedIn", "/api/linkedin/posts", li_caption, HASHTAGS_LI)):
+    for platform, path, cap, tags in (("Instagram", "/api/posts", ig_caption, kind["ig"]),
+                                      ("LinkedIn", "/api/linkedin/posts", li_caption, kind["li"])):
         if not sched.get(platform.lower()):
             continue
-        posts = [{"caption": cap(it["title"], it["url"], n), "video_url": it["link"], "hashtags": tags}
+        posts = [{"caption": cap(it["title"], it["url"], n, kind["hooks"]), "video_url": it["link"], "hashtags": tags}
                  for n, it in enumerate(done)]
         ok_total, err = 0, ""
         for b in range(0, len(posts), 50):

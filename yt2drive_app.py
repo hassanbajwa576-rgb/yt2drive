@@ -36,6 +36,8 @@ AUTO = "--autostart" in sys.argv
 TOPICS_ARG = sys.argv[sys.argv.index("--topics") + 1] if "--topics" in sys.argv[:-1] else ""
 NO_CC = "--no-cc" in sys.argv
 CARTOON = "--cartoon" in sys.argv
+CREATORS = "--creators" in sys.argv
+SCHED_START = sys.argv[sys.argv.index("--schedule-start") + 1] if "--schedule-start" in sys.argv[:-1] else None
 SCHED_INT = int(sys.argv[sys.argv.index("--schedule") + 1]) if "--schedule" in sys.argv[:-1] else None
 FIND_N = int(sys.argv[sys.argv.index("--find") + 1]) if "--find" in sys.argv[:-1] else None
 LINKS_FILE = sys.argv[sys.argv.index("--file") + 1] if "--file" in sys.argv[:-1] else None
@@ -161,6 +163,10 @@ CARTOON_RE = re.compile(r"spongebob|sponge bob|patrick star|squidward|mr\.? krab
 NOT_CARTOON_RE = re.compile(r"ranking|reaction|reacts?\b|review|explained|theory|how (we|to|they)|making of|behind the scenes|tutorial|live[- ]action|\bai\b|sora|roast|scp|asmr|cosplay|fan ?made|speed ?paint|drawing|draw\b|recreat|toy|unboxing|gameplay|minecraft|roblox|lego|\birl\b|podcast|interview|voice actor|cast\b|mashup|remix|edit\b|ytp|sfm|vs real|anime|naruto|goku|dragon ?ball|one piece|pokemon|disney|simpsons|family guy|south park|rick and morty|nsfw|18\+", re.I)
 
 
+CREATOR_RE = re.compile(r"mr ?beast|ishowspeed|i show speed|\bspeed\b|kai cenat|markiplier|pewdiepie|jacksepticeye|dude perfect|sidemen|\bksi\b|logan paul|jake paul|airrack|ryan trahan|dhar mann|matpat|game theory|sssniperwolf|karl jacobs|georgenotfound|technoblade|tommyinnit|valkyrae|pokimane|\bxqc\b|asmongold|hasan ?abi|jynxzi|adin ross|duke dennis|chrisnxtdoor|nelk|bobby lee|kevin hart|ninja\b|dream smp|mark rober|zhc|chunkz|yousef|cj so cool|plaqueboymax|fanum|sketch\b|stable ronaldo|ray william johnson|lazarbeam|preston|unspeakable|jelly|slogo|crainer|sharky|rakai|flamingo|quackity|ranboo|wilbur|tubbo|dantdm|stampy|ssundee|vanossgaming|h3h3|jschlatt|pokelawls|sodapoppin|moistcr1tikal|charlie puth|andrew tate|gordon ramsay", re.I)
+NOT_CREATOR_RE = re.compile(r"reaction video|news\b|breaking|dies\b|death|arrest|lawsuit|exposed|scandal|drama|cartoon|anime|fan ?made|tutorial|how to|asmr|nsfw|18\+|gambling|casino|sponsor|giveaway|tier list|ranking|scp|fnaf|roblox|minecraft music", re.I)
+
+
 def _cookie_conf():
     """Optional YouTube sign-in for yt-dlp: cookies.txt next to the app, or a browser name in cookies_browser.txt."""
     f = HERE / "cookies.txt"
@@ -245,7 +251,10 @@ def run_find(opts, q, cancel):
                     d = _num(dur)
                     if vid in used or vid in found or not (10 <= d <= 180) or _num(views) < 500:
                         continue
-                    if CARTOON:
+                    if CREATORS:
+                        if not CREATOR_RE.search(title + " " + ch) or NOT_CREATOR_RE.search(title):
+                            continue
+                    elif CARTOON:
                         if not CARTOON_RE.search(title + " " + ch) or NOT_CARTOON_RE.search(title):
                             continue
                     elif not custom and (not ART_RE.search(title) or BAD_RE.search(title + " " + ch)):
@@ -258,7 +267,7 @@ def run_find(opts, q, cancel):
         for n, v in enumerate(cands):
             if cancel.is_set() or len(picks) >= want:
                 break
-            if per.get(v["channel"], 0) >= (10 if CARTOON else 3):
+            if per.get(v["channel"], 0) >= (8 if (CARTOON or CREATORS) else 3):
                 continue
             ok = True
             if opts["cc_only"]:
@@ -1064,7 +1073,11 @@ class App(tk.Tk):
         try:
             from sched_lib import schedule_items
             cfg = json.loads((HERE / "worker_config.json").read_text(encoding="utf-8"))
-            schedule_items(items, {"interval": SCHED_INT, "instagram": True, "linkedin": True},
+            sched = {"interval": SCHED_INT, "instagram": True, "linkedin": True,
+                     "kind": "creators" if CREATORS else "cartoon"}
+            if SCHED_START:
+                sched["startTime"] = SCHED_START
+            schedule_items(items, sched,
                            cfg.get("scheduler"), lambda m: self.q.put(("sched", m)))
         except Exception as e:
             self.q.put(("sched", f"Scheduling failed: {e}"))
