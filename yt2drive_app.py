@@ -35,6 +35,8 @@ DEMO = "--demo" in sys.argv
 AUTO = "--autostart" in sys.argv
 TOPICS_ARG = sys.argv[sys.argv.index("--topics") + 1] if "--topics" in sys.argv[:-1] else ""
 NO_CC = "--no-cc" in sys.argv
+CARTOON = "--cartoon" in sys.argv
+SCHED_INT = int(sys.argv[sys.argv.index("--schedule") + 1]) if "--schedule" in sys.argv[:-1] else None
 FIND_N = int(sys.argv[sys.argv.index("--find") + 1]) if "--find" in sys.argv[:-1] else None
 LINKS_FILE = sys.argv[sys.argv.index("--file") + 1] if "--file" in sys.argv[:-1] else None
 
@@ -155,6 +157,10 @@ ART_RE = re.compile(r"draw|sketch|paint|watercolou?r|acrylic|gouache|pastel|char
 BAD_RE = re.compile(r"logo|brand|nezuko|naruto|goku|anime|manga|berserk|squid ?game|titanic|k-?pop|newjeans|ive\b|bts|blackpink|celebrit|connery|horse|breyer|warhammer|disney|pokemon|pikachu|spider|batman|superman|barbie|mario|sonic|movie|film|trailer|roblox|fan ?anim|simpsons|marvel|avenger|iron ?man|poppy|sprunki|hazbin|ddlc|meme|prank|rhymes|squishmallow|minecraft|fortnite|skibidi|brainrot|indian|aunty|aunties|animal|cat\b|dog\b|house|wall\b|walls\b|body ?paint|face ?paint|yoga|fondant|apartment|decor|roof|fence|furniture|corpse|costume|dark souls|castlevania|molang|ratajkowski|jolie|fnaf|freddy|winx|totoro|jolie|karambit|knife|weapon|gun\b|blender|maya\b|makeup|tattoo|ishowspeed|kids|children|toddler|cartoon network|racing|drift|krishna|ganesh|ice spice|actor|singer|song\b|lyrics|bob ?ross|zelda|link\b|naruto|ghibli|sailor|umamusume|loid|spy x", re.I)
 
 
+CARTOON_RE = re.compile(r"spongebob|sponge bob|patrick star|squidward|mr\.? krabs|plankton|sandy cheeks|tom (and|&) jerry|looney tunes|bugs bunny|daffy duck|road ?runner|wile e|scooby|powerpuff|phineas|ferb|gumball|adventure time|regular show|teen titans|ben 10|dexter'?s lab|johnny bravo|courage the cowardly|ed,? edd|fairly ?odd|rugrats|hey arnold|danny phantom|invader zim|kim possible|chowder|flapjack|pink panther|woody woodpecker|animaniacs|pinky and the brain|oddbods|garfield|animated|cartoon", re.I)
+NOT_CARTOON_RE = re.compile(r"ranking|reaction|reacts?\b|review|explained|theory|how (we|to|they)|making of|behind the scenes|tutorial|live[- ]action|\bai\b|sora|roast|scp|asmr|cosplay|fan ?made|speed ?paint|drawing|draw\b|recreat|toy|unboxing|gameplay|minecraft|roblox|lego|\birl\b|podcast|interview|voice actor|cast\b|mashup|remix|edit\b|ytp|sfm|vs real|anime|naruto|goku|dragon ?ball|one piece|pokemon|disney|simpsons|family guy|south park|rick and morty|nsfw|18\+", re.I)
+
+
 def _cookie_conf():
     """Optional YouTube sign-in for yt-dlp: cookies.txt next to the app, or a browser name in cookies_browser.txt."""
     f = HERE / "cookies.txt"
@@ -239,7 +245,10 @@ def run_find(opts, q, cancel):
                     d = _num(dur)
                     if vid in used or vid in found or not (10 <= d <= 180) or _num(views) < 500:
                         continue
-                    if not custom and (not ART_RE.search(title) or BAD_RE.search(title + " " + ch)):
+                    if CARTOON:
+                        if not CARTOON_RE.search(title + " " + ch) or NOT_CARTOON_RE.search(title):
+                            continue
+                    elif not custom and (not ART_RE.search(title) or BAD_RE.search(title + " " + ch)):
                         continue
                     found[vid] = dict(id=vid, channel=ch, title=title, views=_num(views), duration=d)
             pct = min(40, max(len(found) / (want * 3), (i + 1) / len(topics)) * 40)
@@ -249,7 +258,7 @@ def run_find(opts, q, cancel):
         for n, v in enumerate(cands):
             if cancel.is_set() or len(picks) >= want:
                 break
-            if per.get(v["channel"], 0) >= 3:
+            if per.get(v["channel"], 0) >= (10 if CARTOON else 3):
                 continue
             ok = True
             if opts["cc_only"]:
@@ -1019,6 +1028,9 @@ class App(tk.Tk):
             messagebox.showerror("Can't start", ev[1])
         elif k == "finished":
             self._finish()
+        elif k == "sched":
+            self.lbl_title.configure(text=ev[1])
+            self.lbl_global.configure(text=ev[1], fg=GREEN if ev[1].startswith("Scheduled") else AMBER)
 
     def _finish(self, fatal=False):
         self.running = False
@@ -1043,6 +1055,19 @@ class App(tk.Tk):
         self.lbl_title.configure(text="All done — double-click a row to copy its link" if n_ok or n_skip else "Finished")
         if n_ok:
             self.copy_all()
+        if SCHED_INT and n_ok and not fatal and not self.cancel.is_set():
+            self.lbl_title.configure(text="Scheduling on Instagram and LinkedIn…")
+            items = [dict(i) for i in self.items]
+            threading.Thread(target=self._schedule_thread, args=(items,), daemon=True).start()
+
+    def _schedule_thread(self, items):
+        try:
+            from sched_lib import schedule_items
+            cfg = json.loads((HERE / "worker_config.json").read_text(encoding="utf-8"))
+            schedule_items(items, {"interval": SCHED_INT, "instagram": True, "linkedin": True},
+                           cfg.get("scheduler"), lambda m: self.q.put(("sched", m)))
+        except Exception as e:
+            self.q.put(("sched", f"Scheduling failed: {e}"))
 
 
 if __name__ == "__main__":

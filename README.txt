@@ -53,3 +53,7 @@ WEB PANEL (control it from any browser)
    yt2drive_worker.py = runs on your PC and does the real work for the panel
    Start the worker with RUN_WORKER.bat (INSTALL_WORKER_STARTUP.bat makes it start with Windows).
    worker_config.json holds the panel URL and worker key. It is NOT committed to GitHub.
+
+RUN_CARTOON50.bat: finds 50 non-Creative-Commons cartoon clips (SpongeBob, Tom and Jerry, Looney Tunes ...),
+uploads them to Drive, then schedules them on Instagram (affiliate captions) and LinkedIn (general captions)
+every 30 minutes starting about 2 minutes after the last upload. Needs worker_config.json (scheduler key).

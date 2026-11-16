@@ -57,69 +57,7 @@ class Panel:
         self._req("POST", state)
 
 
-HASHTAGS = ["#reels", "#viral", "#video"]
-
-
-def post_json(url, key, body):
-    r = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST", headers={
-        "Authorization": f"Bearer {key}", "Content-Type": "application/json", "User-Agent": "yt2drive-worker/1"})
-    try:
-        with urllib.request.urlopen(r, timeout=60) as resp:
-            return resp.status, json.loads(resp.read().decode() or "{}")
-    except urllib.error.HTTPError as e:
-        try:
-            return e.code, json.loads(e.read().decode() or "{}")
-        except Exception:
-            return e.code, {"error": str(e)}
-
-
-def make_caption(title, url):
-    title = (title or "").strip()
-    if len(title) > 150:
-        title = title[:147] + "..."
-    return f"{title}\n\nSource: {url}\n\nFollow for more."
-
-
-def schedule_items(items, sched, scfg, say):
-    """Queue every finished upload on the Universal Scheduler (Instagram and/or LinkedIn)."""
-    if not scfg or not scfg.get("key"):
-        say("Not scheduled: no scheduler key in worker_config.json")
-        return
-    base = scfg["url"].rstrip("/")
-    posts = []
-    for it in items:
-        link = it.get("link")
-        if not (it["status"].startswith("Done") and link):
-            continue
-        posts.append({"caption": make_caption(it["title"], it["url"]), "video_url": link, "hashtags": HASHTAGS})
-    if not posts:
-        say("Nothing to schedule (no finished uploads)")
-        return
-    interval = max(1, int(sched.get("interval", 60)))
-    if sched.get("startTime"):
-        start = dt.datetime.fromisoformat(sched["startTime"].replace("Z", "+00:00"))
-        if start.tzinfo is None:
-            start = start.replace(tzinfo=dt.timezone.utc)
-    else:
-        start = dt.datetime.now(dt.timezone.utc) + dt.timedelta(minutes=2)
-    results = []
-    for platform, path in (("Instagram", "/api/posts"), ("LinkedIn", "/api/linkedin/posts")):
-        if not sched.get(platform.lower()):
-            continue
-        ok_total, err = 0, ""
-        for b in range(0, len(posts), 50):
-            chunk = posts[b:b + 50]
-            when = start + dt.timedelta(minutes=interval * b)
-            code, data = post_json(base + path, scfg["key"], {
-                "posts": chunk, "interval": interval, "startTime": when.isoformat().replace("+00:00", "Z")})
-            if code == 200 and data.get("success"):
-                ok_total += len(chunk)
-            else:
-                err = f"{code}: {data.get('error', 'failed')}"
-                break
-        results.append(f"{platform}: {ok_total} scheduled" + (f" ({err})" if err else ""))
-    say("Scheduled. " + "  ·  ".join(results) if results else "No platform selected for scheduling")
-
+from sched_lib import schedule_items  # noqa: E402  (shared captions + scheduling)
 
 
 class Worker:
