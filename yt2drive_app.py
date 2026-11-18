@@ -40,6 +40,7 @@ CREATORS = "--creators" in sys.argv
 COMPILATION = "--compilation" in sys.argv
 ALEKS_N = int(sys.argv[sys.argv.index("--mix-aleks") + 1]) if "--mix-aleks" in sys.argv[:-1] else 0
 KIND_BY_URL = {}
+TITLE_BY_URL = {}
 SCHED_START = sys.argv[sys.argv.index("--schedule-start") + 1] if "--schedule-start" in sys.argv[:-1] else None
 SCHED_INT = int(sys.argv[sys.argv.index("--schedule") + 1]) if "--schedule" in sys.argv[:-1] else None
 FIND_N = int(sys.argv[sys.argv.index("--find") + 1]) if "--find" in sys.argv[:-1] else None
@@ -170,8 +171,8 @@ CREATOR_RE = re.compile(r"mr ?beast|ishowspeed|i show speed|\bspeed\b|kai cenat|
 NOT_CREATOR_RE = re.compile(r"reaction video|news\b|breaking|dies\b|death|arrest|lawsuit|exposed|scandal|drama|cartoon|anime|fan ?made|tutorial|how to|asmr|nsfw|18\+|gambling|casino|sponsor|giveaway|tier list|ranking|scp|fnaf|roblox|minecraft music", re.I)
 
 
-COMP_RE = re.compile(r"compilation|compil\b|best of|funny moments|try not to laugh|funniest|bloopers|fails?\b|moments", re.I)
-NOT_COMP_RE = re.compile(r"tutorial|how to|asmr|nsfw|18\+|gambling|casino|news\b|dies\b|death|arrest|reaction|reacts?\b|roblox|fnaf|anime|naruto|dragon ?ball|scp|drawing|sponsor|giveaway", re.I)
+COMP_RE = re.compile(r"compilation|compil\b|best of|funny moments|try not to laugh|funniest|bloopers|fails?\b", re.I)
+NOT_COMP_RE = re.compile(r"ranking|tier list|mashup|\bedit\b|ytp|sfm|tutorial|how to|asmr|nsfw|18\+|gambling|casino|news\b|dies\b|death|arrest|reaction|reacts?\b|roblox|fnaf|anime|naruto|dragon ?ball|scp|drawing|sponsor|giveaway", re.I)
 ALEKS_TOPICS = ["", "drawing tips", "drawing tutorial", "how to draw", "anatomy", "face", "eyes", "nose", "lips", "hands", "hair", "body",
                 "pose", "perspective", "shading", "light and shadow", "proportions", "sketching", "portrait", "mistakes", "tricks",
                 "hack", "easy", "fast", "step by step", "realistic", "cartoon", "manga", "clothes", "folds", "muscles", "legs", "arms",
@@ -181,27 +182,22 @@ ALEKS_TOPICS = ["", "drawing tips", "drawing tutorial", "how to draw", "anatomy"
 
 
 def _find_aleks(want, used, cancel, q):
-    """New Aleks Font videos under a Creative Commons licence (not uploaded before)."""
-    sps = ["CAMSBBgBMAE%253D", "EgIwAQ%253D%253D"]
-    found = {}
-    for i, t in enumerate(ALEKS_TOPICS):
-        if cancel.is_set() or len(found) >= want:
-            break
-        for sp in sps:
-            url = f"https://www.youtube.com/results?search_query={('Aleks Font ' + t).strip().replace(' ', '+')}&sp={sp}"
-            out = _ytdlp(["--flat-playlist", "--no-warnings", "--print",
-                          "%(id)s|%(view_count)s|%(duration)s|%(channel)s|%(title)s", url])
-            for line in out.splitlines():
-                p = line.split("|", 4)
-                if len(p) < 5:
-                    continue
-                vid, views, dur, ch, title = p
-                d = _num(dur)
-                if "aleks font" not in ch.lower() or vid in used or vid in found or not (8 <= d <= 180):
-                    continue
-                found[vid] = dict(id=vid, channel=ch, title=title, views=_num(views), duration=d)
-        q.put(("find", 85 + min(14, i / len(ALEKS_TOPICS) * 14), f"Searching Aleks Font  ·  {len(found)} new videos"))
-    return list(found.values())[:want]
+    """Previously uploaded Aleks Font videos (already on Drive with working links): reuse them, no new download."""
+    ids = set()
+    for f in HERE.glob("links_aleks*.txt"):
+        ids.update(re.findall(r"v=([\w-]{11})", f.read_text(encoding="utf-8", errors="ignore")))
+    have = {}
+    p = HERE / "links.csv"
+    if p.exists():
+        for row in csv.DictReader(open(p, encoding="utf-8", errors="ignore")):
+            m = re.search(r"v=([\w-]{11})", row.get("source_url", ""))
+            if m and m.group(1) in ids and row.get("link_ok", "").lower() == "true" and row.get("direct_mp4_link"):
+                have[m.group(1)] = dict(id=m.group(1), channel="Aleks Font", title=row.get("title", ""), views=0, duration=0)
+                TITLE_BY_URL[f"https://www.youtube.com/watch?v={m.group(1)}"] = row.get("title", "")
+    pool = list(have.values())
+    random.shuffle(pool)
+    q.put(("find", 20, f"Aleks Font: {len(pool)} uploaded videos available to reuse"))
+    return pool[:want]
 
 
 def _cookie_conf():
@@ -272,7 +268,11 @@ def run_find(opts, q, cancel):
     q.put(("find", 1, "Searching YouTube…"))
     used = used_ids()
     found = {}
+    aleks = []
     try:
+        if ALEKS_N:
+            aleks = _find_aleks(ALEKS_N, used, cancel, q)
+            want += ALEKS_N - len(aleks)  # not enough new Aleks Font videos: fill the slots with extra compilations
         for i, t in enumerate(topics):
             if cancel.is_set() or len(found) >= want * 3:
                 break
@@ -286,7 +286,7 @@ def run_find(opts, q, cancel):
                         continue
                     vid, views, dur, ch, title = p
                     d = _num(dur)
-                    if vid in used or vid in found or not ((30 if COMPILATION else 10) <= d <= 180) or _num(views) < 500:
+                    if vid in used or vid in found or not ((60 if COMPILATION else 10) <= d <= 180) or _num(views) < 500:
                         continue
                     if COMPILATION:
                         if not COMP_RE.search(title) or NOT_COMP_RE.search(title):
@@ -323,10 +323,6 @@ def run_find(opts, q, cancel):
             q.put(("find_end", [], "Search cancelled"))
             return
         if ALEKS_N:
-            aleks = _find_aleks(ALEKS_N, used, cancel, q)
-            if cancel.is_set():
-                q.put(("find_end", [], "Search cancelled"))
-                return
             comp_urls = [f"https://www.youtube.com/watch?v={v['id']}" for v in picks]
             ale_urls = [f"https://www.youtube.com/watch?v={v['id']}" for v in aleks]
             for u in comp_urls:
@@ -340,7 +336,8 @@ def run_find(opts, q, cancel):
                 if n < len(ale_urls):
                     urls.append(ale_urls[n])
             (HERE / "find_picks.json").write_text(json.dumps(picks + aleks, ensure_ascii=False, indent=1), encoding="utf-8")
-            q.put(("find_end", urls, f"{len(comp_urls)} compilations + {len(ale_urls)} Aleks Font videos"))
+            q.put(("global", f"{len(comp_urls)} compilations + {len(ale_urls)} Aleks Font videos"))
+            q.put(("find_end", urls, ""))
             return
         (HERE / "find_picks.json").write_text(json.dumps(picks, ensure_ascii=False, indent=1), encoding="utf-8")
         urls = [f"https://www.youtube.com/watch?v={v['id']}" for v in picks]
@@ -1126,7 +1123,9 @@ class App(tk.Tk):
             self.copy_all()
         if SCHED_INT and n_ok and not fatal and not self.cancel.is_set():
             self.lbl_title.configure(text="Scheduling on Instagram and LinkedIn…")
-            items = [dict(i, kind=KIND_BY_URL.get(i["url"])) for i in self.items]
+            items = [dict(i, kind=KIND_BY_URL.get(i["url"]),
+                          title=(TITLE_BY_URL.get(i["url"]) if i["title"] == i["url"] and TITLE_BY_URL.get(i["url"]) else i["title"]))
+                     for i in self.items]
             threading.Thread(target=self._schedule_thread, args=(items,), daemon=True).start()
 
     def _schedule_thread(self, items):

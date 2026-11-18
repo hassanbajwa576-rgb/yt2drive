@@ -74,7 +74,8 @@ def schedule_items(items, sched, scfg, say):
         say("Not scheduled: no scheduler key in worker_config.json")
         return
     base = scfg["url"].rstrip("/")
-    done = [it for it in items if str(it.get("status", "")).startswith("Done") and it.get("link")]
+    done = [it for it in items if it.get("link") and (str(it.get("status", "")).startswith("Done") or
+                                                      (it.get("kind") == "aleks" and str(it.get("status", "")).startswith("Skipped")))]
     if not done:
         say("Nothing to schedule (no finished uploads)")
         return
