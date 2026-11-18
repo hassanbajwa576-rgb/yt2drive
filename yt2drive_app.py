@@ -41,6 +41,7 @@ COMPILATION = "--compilation" in sys.argv
 ALEKS_N = int(sys.argv[sys.argv.index("--mix-aleks") + 1]) if "--mix-aleks" in sys.argv[:-1] else 0
 KIND_BY_URL = {}
 TITLE_BY_URL = {}
+FORCE_IDS = set()  # old uploads whose Drive link is dead: download and upload them again
 SCHED_START = sys.argv[sys.argv.index("--schedule-start") + 1] if "--schedule-start" in sys.argv[:-1] else None
 SCHED_INT = int(sys.argv[sys.argv.index("--schedule") + 1]) if "--schedule" in sys.argv[:-1] else None
 FIND_N = int(sys.argv[sys.argv.index("--find") + 1]) if "--find" in sys.argv[:-1] else None
@@ -202,16 +203,16 @@ def _find_aleks(want, used, cancel, q):
         m = re.search(r"v=([\w-]{11})", row.get("source_url", ""))
         if m:
             links[m.group(1)] = row.get("direct_mp4_link", "")
-    good = []
-    for n, v in enumerate(pool):
-        if cancel.is_set() or len(good) >= want:
+    chosen = pool[:want]
+    for n, v in enumerate(chosen):
+        if cancel.is_set():
             break
-        ok, _ = Y.check_link(links.get(v["id"], ""))  # skip videos deleted from Drive
-        if ok:
-            good.append(v)
-        q.put(("find", 2 + min(28, n / max(1, min(len(pool), want * 2)) * 28),
-               f"Aleks Font: {len(good)} working links  ·  checked {n + 1} of {len(pool)}"))
-    return good
+        ok, _ = Y.check_link(links.get(v["id"], ""))
+        if not ok:
+            FORCE_IDS.add(v["id"])  # deleted from Drive: re-download it
+        q.put(("find", 2 + min(28, (n + 1) / max(1, len(chosen)) * 28),
+               f"Aleks Font: {len(chosen)} picked  ·  {len(FORCE_IDS)} need re-downloading  ·  checked {n + 1}"))
+    return chosen
 
 
 def _cookie_conf():
@@ -430,6 +431,8 @@ def run_real(urls, opts, q, cancel):
     q.put(("global", ""))
 
     done_map = already_uploaded() if opts["skip_done"] else {}
+    for _fid in FORCE_IDS:
+        done_map.pop(_fid, None)
 
     for i, url in enumerate(urls):
         if cancel.is_set():
