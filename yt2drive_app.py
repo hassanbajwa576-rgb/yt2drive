@@ -42,6 +42,8 @@ ALEKS_N = int(sys.argv[sys.argv.index("--mix-aleks") + 1]) if "--mix-aleks" in s
 INSTA_ACCOUNTS = [a.strip().lstrip("@") for a in sys.argv[sys.argv.index("--insta") + 1].split(",") if a.strip()] \
     if "--insta" in sys.argv[:-1] else []
 MIN_VIEWS = int(sys.argv[sys.argv.index("--min-views") + 1]) if "--min-views" in sys.argv[:-1] else 1_000_000
+PICKS_FILE = sys.argv[sys.argv.index("--picks") + 1] if "--picks" in sys.argv[:-1] else None
+DIRECT_BY_URL = {}  # reel page url -> direct video address (from a picks file)
 KIND_BY_URL = {}
 CREDIT_BY_URL = {}
 TITLE_BY_URL = {}
@@ -220,6 +222,26 @@ def _find_aleks(want, used, cancel, q):
         q.put(("find", 2 + min(28, (n + 1) / max(1, len(chosen)) * 28),
                f"Aleks Font: {len(chosen)} picked  ·  {len(FORCE_IDS)} need re-downloading  ·  checked {n + 1}"))
     return chosen
+
+
+def _load_picks():
+    """insta_picks.json: reels chosen in a logged-in browser (page url, direct video url, creator, caption)."""
+    if not PICKS_FILE:
+        return []
+    f = Path(PICKS_FILE)
+    f = f if f.is_absolute() else HERE / f
+    picks = json.loads(f.read_text(encoding="utf-8"))
+    urls = []
+    for c in picks:
+        u = c["url"]
+        urls.append(u)
+        if c.get("video_url"):
+            DIRECT_BY_URL[u] = c["video_url"]
+        KIND_BY_URL[u] = "insta"
+        CREDIT_BY_URL[u] = "@" + c.get("user", "")
+        if c.get("title"):
+            TITLE_BY_URL[u] = c["title"]
+    return urls
 
 
 def _cookie_conf():
@@ -634,11 +656,16 @@ def run_real(urls, opts, q, cancel):
                 **_cookie_opts(),
             }
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=True)
+                try:
+                    info = ydl.extract_info(DIRECT_BY_URL.get(url, url), download=True)
+                except Exception:
+                    if url not in DIRECT_BY_URL:
+                        raise
+                    info = ydl.extract_info(url, download=True)  # direct address expired: try the reel page
                 path = Path(ydl.prepare_filename(info)).with_suffix(".mp4")
             if not path.exists():
                 raise RuntimeError(f"Download finished but file not found: {path.name}")
-            title = info.get("title", "")
+            title = TITLE_BY_URL.get(url) or info.get("title", "")
             q.put(("title", i, title))
             q.put(("dl", i, 100, None, 0, 1, 1))
             if cancel.is_set():
@@ -779,6 +806,14 @@ class App(tk.Tk):
             self.txt.insert("1.0", Path(LINKS_FILE).read_text(encoding="utf-8", errors="ignore"))
             if AUTO:
                 self.after(900, self.start)
+        if PICKS_FILE:
+            try:
+                urls = _load_picks()
+                self.txt.insert("1.0", "\n".join(urls) + "\n")
+                self.lbl_title.configure(text=f"{len(urls)} Instagram reels loaded")
+                self.after(900, self.start)
+            except Exception as e:
+                messagebox.showerror("Picks file", f"Could not read the picks file:\n\n{e}")
         if FIND_N:
             self.after(700, self.find)
 
@@ -1295,7 +1330,7 @@ class App(tk.Tk):
             from sched_lib import schedule_items
             cfg = json.loads((HERE / "worker_config.json").read_text(encoding="utf-8"))
             sched = {"interval": SCHED_INT, "instagram": True, "linkedin": True,
-                     "kind": "insta" if INSTA_ACCOUNTS else ("creators" if CREATORS else ("compilation" if COMPILATION else "cartoon"))}
+                     "kind": "insta" if (INSTA_ACCOUNTS or PICKS_FILE) else ("creators" if CREATORS else ("compilation" if COMPILATION else "cartoon"))}
             if SCHED_START:
                 sched["startTime"] = SCHED_START
             schedule_items(items, sched,
