@@ -21,6 +21,12 @@ KINDS = {
     "creators": dict(ig="#creator #funny #viral #reels #trending #ad", li="#creator #funny #viral #reels #trending",
                      hooks=["Tag the friend who watches this guy. 😂", "This one is a classic. 🔥", "Wait for the ending. 😂",
                             "Save this for later. 🔖", "Who else remembers this? 😂"]),
+    "compilation": dict(ig="#funny #compilation #memes #reels #viral #ad", li="#funny #compilation #memes #reels #viral",
+                        hooks=["Try not to laugh. 😂", "Wait for the last one. 😂", "Save this for later. 🔖",
+                               "Tag someone who needs this. 😂", "Which one got you? 👇"]),
+    "aleks": dict(ig="#drawing #art #arttutorial #sketch #reels #ad", li="#drawing #art #arttutorial #sketch #reels",
+                  hooks=["Save this for your next drawing. 🎨", "Try this on your next sketch. ✏️", "Which tip helped you most? 👇",
+                         "Practice this today. 🖊️", "Share with an artist friend. 🎨"], credit="Aleks Font (CC BY)"),
 }
 
 
@@ -46,17 +52,19 @@ def _yt_url(url):
     return url
 
 
-def ig_caption(title, url, n, hooks=HOOKS):
+def ig_caption(title, url, n, hooks=HOOKS, credit=None):
     name, code = AFFILIATE[n % len(AFFILIATE)]
     return (f"🛒 Digital art tool I recommend: {name}\n"
             f"👉 https://s.click.aliexpress.com/e/{code} (affiliate link, I earn a small commission at no cost to you #ad)\n"
             f"🔗 Link also in bio.\n{hooks[n % len(hooks)]}\n"
             f"🎬 \"{_clean(title)}\" (source: {url})\n"
+            + (f"Credit: {credit}\n" if credit else "") +
             f"Follow @hassanbajwa for practical AI tips, daily laughs and motivation. 🚀")
 
 
-def li_caption(title, url, n, hooks=HOOKS):
+def li_caption(title, url, n, hooks=HOOKS, credit=None):
     return (f"{hooks[n % len(hooks)]}\n🎬 \"{_clean(title)}\" (source: {url})\n"
+            + (f"Credit: {credit}\n" if credit else "") +
             f"Follow for practical AI tips, daily laughs and motivation. 🚀")
 
 
@@ -86,8 +94,11 @@ def schedule_items(items, sched, scfg, say):
                                       ("LinkedIn", "/api/linkedin/posts", li_caption, kind["li"])):
         if not sched.get(platform.lower()):
             continue
-        posts = [{"caption": cap(it["title"], it["url"], n, kind["hooks"]), "video_url": it["link"], "hashtags": tags}
-                 for n, it in enumerate(done)]
+        posts = []
+        for n, it in enumerate(done):
+            k = KINDS.get(it.get("kind")) or kind
+            posts.append({"caption": cap(it["title"], it["url"], n, k["hooks"], k.get("credit")),
+                          "video_url": it["link"], "hashtags": k["ig" if platform == "Instagram" else "li"]})
         ok_total, err = 0, ""
         for b in range(0, len(posts), 50):
             chunk = posts[b:b + 50]

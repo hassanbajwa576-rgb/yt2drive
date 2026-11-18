@@ -37,6 +37,9 @@ TOPICS_ARG = sys.argv[sys.argv.index("--topics") + 1] if "--topics" in sys.argv[
 NO_CC = "--no-cc" in sys.argv
 CARTOON = "--cartoon" in sys.argv
 CREATORS = "--creators" in sys.argv
+COMPILATION = "--compilation" in sys.argv
+ALEKS_N = int(sys.argv[sys.argv.index("--mix-aleks") + 1]) if "--mix-aleks" in sys.argv[:-1] else 0
+KIND_BY_URL = {}
 SCHED_START = sys.argv[sys.argv.index("--schedule-start") + 1] if "--schedule-start" in sys.argv[:-1] else None
 SCHED_INT = int(sys.argv[sys.argv.index("--schedule") + 1]) if "--schedule" in sys.argv[:-1] else None
 FIND_N = int(sys.argv[sys.argv.index("--find") + 1]) if "--find" in sys.argv[:-1] else None
@@ -167,6 +170,40 @@ CREATOR_RE = re.compile(r"mr ?beast|ishowspeed|i show speed|\bspeed\b|kai cenat|
 NOT_CREATOR_RE = re.compile(r"reaction video|news\b|breaking|dies\b|death|arrest|lawsuit|exposed|scandal|drama|cartoon|anime|fan ?made|tutorial|how to|asmr|nsfw|18\+|gambling|casino|sponsor|giveaway|tier list|ranking|scp|fnaf|roblox|minecraft music", re.I)
 
 
+COMP_RE = re.compile(r"compilation|compil\b|best of|funny moments|try not to laugh|funniest|bloopers|fails?\b|moments", re.I)
+NOT_COMP_RE = re.compile(r"tutorial|how to|asmr|nsfw|18\+|gambling|casino|news\b|dies\b|death|arrest|reaction|reacts?\b|roblox|fnaf|anime|naruto|dragon ?ball|scp|drawing|sponsor|giveaway", re.I)
+ALEKS_TOPICS = ["", "drawing tips", "drawing tutorial", "how to draw", "anatomy", "face", "eyes", "nose", "lips", "hands", "hair", "body",
+                "pose", "perspective", "shading", "light and shadow", "proportions", "sketching", "portrait", "mistakes", "tricks",
+                "hack", "easy", "fast", "step by step", "realistic", "cartoon", "manga", "clothes", "folds", "muscles", "legs", "arms",
+                "head", "student drawings", "feedback", "practice", "warm up", "sketchbook", "art tips", "dibujo", "shorts", "reels",
+                "tip", "tips", "art", "draw", "drawing", "sketch", "challenge", "timelapse", "speed drawing", "compare", "before after",
+                "student", "lesson", "secret", "rule", "simple", "quick", "pencil", "charcoal", "ink", "color"]
+
+
+def _find_aleks(want, used, cancel, q):
+    """New Aleks Font videos under a Creative Commons licence (not uploaded before)."""
+    sps = ["CAMSBBgBMAE%253D", "EgIwAQ%253D%253D"]
+    found = {}
+    for i, t in enumerate(ALEKS_TOPICS):
+        if cancel.is_set() or len(found) >= want:
+            break
+        for sp in sps:
+            url = f"https://www.youtube.com/results?search_query={('Aleks Font ' + t).strip().replace(' ', '+')}&sp={sp}"
+            out = _ytdlp(["--flat-playlist", "--no-warnings", "--print",
+                          "%(id)s|%(view_count)s|%(duration)s|%(channel)s|%(title)s", url])
+            for line in out.splitlines():
+                p = line.split("|", 4)
+                if len(p) < 5:
+                    continue
+                vid, views, dur, ch, title = p
+                d = _num(dur)
+                if "aleks font" not in ch.lower() or vid in used or vid in found or not (8 <= d <= 180):
+                    continue
+                found[vid] = dict(id=vid, channel=ch, title=title, views=_num(views), duration=d)
+        q.put(("find", 85 + min(14, i / len(ALEKS_TOPICS) * 14), f"Searching Aleks Font  ·  {len(found)} new videos"))
+    return list(found.values())[:want]
+
+
 def _cookie_conf():
     """Optional YouTube sign-in for yt-dlp: cookies.txt next to the app, or a browser name in cookies_browser.txt."""
     f = HERE / "cookies.txt"
@@ -249,9 +286,12 @@ def run_find(opts, q, cancel):
                         continue
                     vid, views, dur, ch, title = p
                     d = _num(dur)
-                    if vid in used or vid in found or not (10 <= d <= 180) or _num(views) < 500:
+                    if vid in used or vid in found or not ((30 if COMPILATION else 10) <= d <= 180) or _num(views) < 500:
                         continue
-                    if CREATORS:
+                    if COMPILATION:
+                        if not COMP_RE.search(title) or NOT_COMP_RE.search(title):
+                            continue
+                    elif CREATORS:
                         if not CREATOR_RE.search(title + " " + ch) or NOT_CREATOR_RE.search(title):
                             continue
                     elif CARTOON:
@@ -267,7 +307,7 @@ def run_find(opts, q, cancel):
         for n, v in enumerate(cands):
             if cancel.is_set() or len(picks) >= want:
                 break
-            if per.get(v["channel"], 0) >= (8 if (CARTOON or CREATORS) else 3):
+            if per.get(v["channel"], 0) >= (8 if (CARTOON or CREATORS or COMPILATION) else 3):
                 continue
             ok = True
             if opts["cc_only"]:
@@ -281,6 +321,26 @@ def run_find(opts, q, cancel):
                    f"Checking licences  ·  {len(picks)} of {want} picked  ·  checked {n + 1} of {len(cands)}"))
         if cancel.is_set():
             q.put(("find_end", [], "Search cancelled"))
+            return
+        if ALEKS_N:
+            aleks = _find_aleks(ALEKS_N, used, cancel, q)
+            if cancel.is_set():
+                q.put(("find_end", [], "Search cancelled"))
+                return
+            comp_urls = [f"https://www.youtube.com/watch?v={v['id']}" for v in picks]
+            ale_urls = [f"https://www.youtube.com/watch?v={v['id']}" for v in aleks]
+            for u in comp_urls:
+                KIND_BY_URL[u] = "compilation"
+            for u in ale_urls:
+                KIND_BY_URL[u] = "aleks"
+            urls = []
+            for n in range(max(len(comp_urls), len(ale_urls))):
+                if n < len(comp_urls):
+                    urls.append(comp_urls[n])
+                if n < len(ale_urls):
+                    urls.append(ale_urls[n])
+            (HERE / "find_picks.json").write_text(json.dumps(picks + aleks, ensure_ascii=False, indent=1), encoding="utf-8")
+            q.put(("find_end", urls, f"{len(comp_urls)} compilations + {len(ale_urls)} Aleks Font videos"))
             return
         (HERE / "find_picks.json").write_text(json.dumps(picks, ensure_ascii=False, indent=1), encoding="utf-8")
         urls = [f"https://www.youtube.com/watch?v={v['id']}" for v in picks]
@@ -1066,7 +1126,7 @@ class App(tk.Tk):
             self.copy_all()
         if SCHED_INT and n_ok and not fatal and not self.cancel.is_set():
             self.lbl_title.configure(text="Scheduling on Instagram and LinkedIn…")
-            items = [dict(i) for i in self.items]
+            items = [dict(i, kind=KIND_BY_URL.get(i["url"])) for i in self.items]
             threading.Thread(target=self._schedule_thread, args=(items,), daemon=True).start()
 
     def _schedule_thread(self, items):
@@ -1074,7 +1134,7 @@ class App(tk.Tk):
             from sched_lib import schedule_items
             cfg = json.loads((HERE / "worker_config.json").read_text(encoding="utf-8"))
             sched = {"interval": SCHED_INT, "instagram": True, "linkedin": True,
-                     "kind": "creators" if CREATORS else "cartoon"}
+                     "kind": "creators" if CREATORS else ("compilation" if COMPILATION else "cartoon")}
             if SCHED_START:
                 sched["startTime"] = SCHED_START
             schedule_items(items, sched,

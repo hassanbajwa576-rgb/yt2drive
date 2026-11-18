@@ -61,3 +61,7 @@ every 30 minutes starting about 2 minutes after the last upload. Needs worker_co
 RUN_CREATORS50.bat: finds 50 non-Creative-Commons clips from famous content creators (MrBeast, IShowSpeed, Kai Cenat,
 Markiplier, PewDiePie ...), uploads them, then schedules them on Instagram (affiliate captions) and LinkedIn every 30 minutes.
 The start time is set after the previous queue; if you run it later than that, it starts about 2 minutes after the last upload.
+
+RUN_MIX100.bat: finds 50 funny compilation clips (not Creative Commons) AND 50 new Aleks Font drawing videos (CC BY, credited),
+uploads them, and schedules everything on Instagram (affiliate captions) and LinkedIn every 30 minutes, alternating
+compilation / Aleks Font / compilation / ... The start is about 2 minutes after the last upload.
