@@ -39,7 +39,11 @@ CARTOON = "--cartoon" in sys.argv
 CREATORS = "--creators" in sys.argv
 COMPILATION = "--compilation" in sys.argv
 ALEKS_N = int(sys.argv[sys.argv.index("--mix-aleks") + 1]) if "--mix-aleks" in sys.argv[:-1] else 0
+INSTA_ACCOUNTS = [a.strip().lstrip("@") for a in sys.argv[sys.argv.index("--insta") + 1].split(",") if a.strip()] \
+    if "--insta" in sys.argv[:-1] else []
+MIN_VIEWS = int(sys.argv[sys.argv.index("--min-views") + 1]) if "--min-views" in sys.argv[:-1] else 1_000_000
 KIND_BY_URL = {}
+CREDIT_BY_URL = {}
 TITLE_BY_URL = {}
 FORCE_IDS = set()  # old uploads whose Drive link is dead: download and upload them again
 SCHED_START = sys.argv[sys.argv.index("--schedule-start") + 1] if "--schedule-start" in sys.argv[:-1] else None
@@ -93,8 +97,11 @@ def fmt_eta(sec):
     return f"{sec // 60}:{sec % 60:02d}"
 
 
+IG_ID_RE = re.compile(r"instagram\.com/(?:[\w.]+/)?(?:reels?|p|tv)/([A-Za-z0-9_-]+)")
+
+
 def youtube_id(url):
-    m = YT_ID_RE.search(url or "")
+    m = YT_ID_RE.search(url or "") or IG_ID_RE.search(url or "")
     return m.group(1) if m else None
 
 
@@ -249,6 +256,61 @@ def _ytdlp(args):
     return r.stdout
 
 
+def _ytdlp_err(args):
+    kw = {"creationflags": 0x08000000} if sys.platform.startswith("win") else {}
+    r = subprocess.run([sys.executable, "-m", "yt_dlp", *_cookie_args(), *args], capture_output=True, text=True,
+                       encoding="utf-8", errors="ignore", **kw)
+    return r.stdout, r.stderr
+
+
+def _find_insta(want, accounts, used, cancel, q):
+    """Pick the most-viewed recent reels (>= MIN_VIEWS) from the given public Instagram accounts."""
+    cands, notes = {}, []
+    for ai, acct in enumerate(accounts):
+        if cancel.is_set():
+            break
+        out, err = _ytdlp_err(["--flat-playlist", "--no-warnings", "-I", "1:40", "--print",
+                               "%(id)s|%(view_count)s|%(duration)s|%(uploader)s|%(url)s",
+                               f"https://www.instagram.com/{acct}/reels/"])
+        rows = []
+        for line in out.splitlines():
+            parts = line.split("|", 4)
+            if len(parts) == 5:
+                rows.append(parts)
+        if not rows:
+            e = [l for l in err.splitlines() if "ERROR" in l]
+            notes.append(f"@{acct}: " + (e[-1][:110] if e else "no reels returned"))
+        # views missing in the quick listing -> read each reel's details (slower, limited)
+        need = [r for r in rows if _num(r[1]) == 0][:15]
+        for r in need:
+            if cancel.is_set():
+                break
+            url = r[4] if r[4].startswith("http") else f"https://www.instagram.com/reel/{r[0]}/"
+            o2, _ = _ytdlp_err(["--no-warnings", "--skip-download", "--print",
+                                "%(view_count)s|%(duration)s|%(uploader)s", url])
+            f = o2.strip().split("|")
+            if len(f) == 3:
+                r[1], r[2], r[3] = f
+            time.sleep(random.uniform(1.0, 2.0))
+        for vid, views, dur, up, url in rows:
+            d = _num(dur)
+            link = f"https://www.instagram.com/reel/{vid}/"
+            if vid in used or link in cands or _num(views) < MIN_VIEWS or not (5 <= d <= 120):
+                continue
+            cands[link] = dict(url=link, views=_num(views), duration=d, user=(up if up and up != "NA" else acct), acct=acct)
+        q.put(("find", 2 + (ai + 1) / len(accounts) * 90,
+               f"Instagram  ·  @{acct}  ·  {len(cands)} reels over {MIN_VIEWS:,} views"))
+    per, picks = {}, []
+    for c in sorted(cands.values(), key=lambda c: -c["views"]):
+        if per.get(c["acct"], 0) >= 10:
+            continue
+        per[c["acct"]] = per.get(c["acct"], 0) + 1
+        picks.append(c)
+        if len(picks) >= want:
+            break
+    return picks, notes
+
+
 def _num(x):
     try:
         return int(float(x))
@@ -285,6 +347,23 @@ def run_find(opts, q, cancel):
     found = {}
     aleks = []
     try:
+        if INSTA_ACCOUNTS:
+            picks, notes = _find_insta(want, INSTA_ACCOUNTS, used, cancel, q)
+            if cancel.is_set():
+                q.put(("find_end", [], "Search cancelled"))
+                return
+            if not picks:
+                q.put(("find_end", [], "No Instagram reels found. " + (" | ".join(notes[:2]) or "") +
+                       "  → Log in to Instagram in your browser and run USE_COOKIES.bat."))
+                return
+            for c in picks:
+                KIND_BY_URL[c["url"]] = "insta"
+                CREDIT_BY_URL[c["url"]] = "@" + c["user"]
+            (HERE / "find_picks_insta.json").write_text(json.dumps(picks, ensure_ascii=False, indent=1), encoding="utf-8")
+            q.put(("global", f"{len(picks)} reels, {picks[0]['views']:,} to {picks[-1]['views']:,} views"
+                             + (f"  ·  {len(notes)} accounts failed" if notes else "")))
+            q.put(("find_end", [c["url"] for c in picks], ""))
+            return
         if ALEKS_N:
             aleks = _find_aleks(ALEKS_N, used, cancel, q)
             want += ALEKS_N - len(aleks)  # not enough new Aleks Font videos: fill the slots with extra compilations
@@ -1140,7 +1219,7 @@ class App(tk.Tk):
             self.copy_all()
         if SCHED_INT and n_ok and not fatal and not self.cancel.is_set():
             self.lbl_title.configure(text="Scheduling on Instagram and LinkedIn…")
-            items = [dict(i, kind=KIND_BY_URL.get(i["url"]),
+            items = [dict(i, kind=KIND_BY_URL.get(i["url"]), credit=CREDIT_BY_URL.get(i["url"]),
                           title=(TITLE_BY_URL.get(i["url"]) if i["title"] == i["url"] and TITLE_BY_URL.get(i["url"]) else i["title"]))
                      for i in self.items]
             threading.Thread(target=self._schedule_thread, args=(items,), daemon=True).start()
@@ -1150,7 +1229,7 @@ class App(tk.Tk):
             from sched_lib import schedule_items
             cfg = json.loads((HERE / "worker_config.json").read_text(encoding="utf-8"))
             sched = {"interval": SCHED_INT, "instagram": True, "linkedin": True,
-                     "kind": "creators" if CREATORS else ("compilation" if COMPILATION else "cartoon")}
+                     "kind": "insta" if INSTA_ACCOUNTS else ("creators" if CREATORS else ("compilation" if COMPILATION else "cartoon"))}
             if SCHED_START:
                 sched["startTime"] = SCHED_START
             schedule_items(items, sched,

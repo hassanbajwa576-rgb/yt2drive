@@ -65,3 +65,8 @@ The start time is set after the previous queue; if you run it later than that, i
 RUN_MIX100.bat: finds 50 funny compilation clips (not Creative Commons) AND 50 new Aleks Font drawing videos (CC BY, credited),
 uploads them, and schedules everything on Instagram (affiliate captions) and LinkedIn every 30 minutes, alternating
 compilation / Aleks Font / compilation / ... The start is about 2 minutes after the last upload.
+
+RUN_INSTA50.bat: picks the 50 most-viewed recent reels (1,000,000+ views) from the Instagram accounts listed in the batch
+file (edit the --insta "a,b,c" part), downloads them, uploads them to Drive and schedules them on Instagram (affiliate
+captions + "Credit: @account") and LinkedIn every 30 minutes. Instagram needs your login: sign in to Instagram in
+Firefox (or Chrome), close the browser, run USE_COOKIES.bat once, then run this file. Use a secondary Instagram account.

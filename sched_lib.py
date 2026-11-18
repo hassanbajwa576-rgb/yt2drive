@@ -24,6 +24,9 @@ KINDS = {
     "compilation": dict(ig="#funny #compilation #memes #reels #viral #ad", li="#funny #compilation #memes #reels #viral",
                         hooks=["Try not to laugh. 😂", "Wait for the last one. 😂", "Save this for later. 🔖",
                                "Tag someone who needs this. 😂", "Which one got you? 👇"]),
+    "insta": dict(ig="#reels #viral #funny #trending #fyp #ad", li="#reels #viral #funny #trending",
+                  hooks=["This one has millions of views for a reason. 🔥", "Wait for it. 😂", "Save this for later. 🔖",
+                         "Tag someone who needs to see this. 😂", "Send this to a friend. 📲"]),
     "aleks": dict(ig="#drawing #art #arttutorial #sketch #reels #ad", li="#drawing #art #arttutorial #sketch #reels",
                   hooks=["Save this for your next drawing. 🎨", "Try this on your next sketch. ✏️", "Which tip helped you most? 👇",
                          "Practice this today. 🖊️", "Share with an artist friend. 🎨"], credit="Aleks Font (CC BY)"),
@@ -98,7 +101,7 @@ def schedule_items(items, sched, scfg, say):
         posts = []
         for n, it in enumerate(done):
             k = KINDS.get(it.get("kind")) or kind
-            posts.append({"caption": cap(it["title"], it["url"], n, k["hooks"], k.get("credit")),
+            posts.append({"caption": cap(it["title"], it["url"], n, k["hooks"], it.get("credit") or k.get("credit")),
                           "video_url": it["link"], "hashtags": k["ig" if platform == "Instagram" else "li"]})
         ok_total, err = 0, ""
         for b in range(0, len(posts), 50):
