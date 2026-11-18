@@ -263,43 +263,109 @@ def _ytdlp_err(args):
     return r.stdout, r.stderr
 
 
+IG_UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+         "Chrome/124.0.0.0 Safari/537.36")
+
+
+def _ig_session():
+    """requests session carrying your Instagram login (cookies.txt or the browser chosen in USE_COOKIES.bat)."""
+    import requests
+    c = _cookie_conf()
+    if not c:
+        return None, "no browser chosen: log in to Instagram in Firefox, close it, run USE_COOKIES.bat"
+    try:
+        if c[0] == "file":
+            import http.cookiejar
+            jar = http.cookiejar.MozillaCookieJar(c[1])
+            jar.load(ignore_discard=True, ignore_expires=True)
+        else:
+            from yt_dlp.cookies import extract_cookies_from_browser
+            jar = extract_cookies_from_browser(c[1])
+    except Exception as e:
+        return None, f"could not read {c[1]} cookies: {str(e)[:120]}"
+    sess = requests.Session()
+    for ck in jar:
+        if "instagram" in (ck.domain or ""):
+            sess.cookies.set(ck.name, ck.value, domain=ck.domain, path=ck.path or "/")
+    if not any(k.name == "sessionid" for k in sess.cookies):
+        return None, "not logged in to Instagram in that browser (no sessionid cookie)"
+    csrf = next((k.value for k in sess.cookies if k.name == "csrftoken"), "")
+    sess.headers.update({"User-Agent": IG_UA, "X-IG-App-ID": "936619743392459", "X-ASBD-ID": "359341",
+                         "X-IG-WWW-Claim": "0", "X-CSRFToken": csrf, "X-Requested-With": "XMLHttpRequest",
+                         "Accept": "*/*", "Origin": "https://www.instagram.com", "Referer": "https://www.instagram.com/"})
+    return sess, ""
+
+
+def _ig_reels(sess, acct, pages=4):
+    """Recent reels of one public account: [(shortcode, views, seconds, username)], plus a note if it failed."""
+    rows, note = [], ""
+    r = sess.get("https://www.instagram.com/api/v1/users/web_profile_info/", params={"username": acct}, timeout=30)
+    if r.status_code == 429:
+        return rows, "rate limited by Instagram (try again later)"
+    if r.status_code in (401, 403) or "login" in r.url:
+        return rows, "Instagram wants a login (cookies not accepted)"
+    try:
+        user = r.json()["data"]["user"]
+    except Exception:
+        return rows, f"profile not readable (HTTP {r.status_code})"
+    uid = user.get("id")
+    # newest posts straight from the profile response (works even if the reels endpoint is blocked)
+    for e in (user.get("edge_owner_to_timeline_media") or {}).get("edges", []):
+        n = e.get("node", {})
+        if n.get("is_video") and n.get("shortcode"):
+            rows.append((n["shortcode"], int(n.get("video_view_count") or 0), float(n.get("video_duration") or 0), acct))
+    # the reels tab, a few pages deep
+    max_id = ""
+    for _ in range(pages):
+        time.sleep(random.uniform(1.5, 3.0))
+        data = {"target_user_id": uid, "page_size": "12", "include_feed_video": "true"}
+        if max_id:
+            data["max_id"] = max_id
+        r = sess.post("https://www.instagram.com/api/v1/clips/user/", data=data, timeout=30)
+        if r.status_code != 200:
+            note = f"reels tab HTTP {r.status_code}"
+            break
+        try:
+            j = r.json()
+        except Exception:
+            break
+        for it in j.get("items", []):
+            m = it.get("media", it)
+            code = m.get("code")
+            if code:
+                views = m.get("play_count") or m.get("ig_play_count") or m.get("view_count") or 0
+                rows.append((code, int(views), float(m.get("video_duration") or 0),
+                             (m.get("user") or {}).get("username") or acct))
+        pg = j.get("paging_info") or {}
+        max_id = pg.get("max_id") or ""
+        if not pg.get("more_available") or not max_id:
+            break
+    return rows, note
+
+
 def _find_insta(want, accounts, used, cancel, q):
     """Pick the most-viewed recent reels (>= MIN_VIEWS) from the given public Instagram accounts."""
+    sess, why = _ig_session()
+    if not sess:
+        return [], [why]
     cands, notes = {}, []
     for ai, acct in enumerate(accounts):
         if cancel.is_set():
             break
-        out, err = _ytdlp_err(["--flat-playlist", "--no-warnings", "-I", "1:40", "--print",
-                               "%(id)s|%(view_count)s|%(duration)s|%(uploader)s|%(url)s",
-                               f"https://www.instagram.com/{acct}/reels/"])
-        rows = []
-        for line in out.splitlines():
-            parts = line.split("|", 4)
-            if len(parts) == 5:
-                rows.append(parts)
-        if not rows:
-            e = [l for l in err.splitlines() if "ERROR" in l]
-            notes.append(f"@{acct}: " + (e[-1][:110] if e else "no reels returned"))
-        # views missing in the quick listing -> read each reel's details (slower, limited)
-        need = [r for r in rows if _num(r[1]) == 0][:15]
-        for r in need:
-            if cancel.is_set():
-                break
-            url = r[4] if r[4].startswith("http") else f"https://www.instagram.com/reel/{r[0]}/"
-            o2, _ = _ytdlp_err(["--no-warnings", "--skip-download", "--print",
-                                "%(view_count)s|%(duration)s|%(uploader)s", url])
-            f = o2.strip().split("|")
-            if len(f) == 3:
-                r[1], r[2], r[3] = f
-            time.sleep(random.uniform(1.0, 2.0))
-        for vid, views, dur, up, url in rows:
-            d = _num(dur)
-            link = f"https://www.instagram.com/reel/{vid}/"
-            if vid in used or link in cands or _num(views) < MIN_VIEWS or not (5 <= d <= 120):
+        try:
+            rows, note = _ig_reels(sess, acct)
+        except Exception as e:
+            rows, note = [], f"error: {str(e)[:100]}"
+        if note and not rows:
+            notes.append(f"@{acct}: {note}")
+        for code, views, dur, up in rows:
+            link = f"https://www.instagram.com/reel/{code}/"
+            if code in used or link in cands or views < MIN_VIEWS or not (5 <= dur <= 120):
                 continue
-            cands[link] = dict(url=link, views=_num(views), duration=d, user=(up if up and up != "NA" else acct), acct=acct)
+            cands[link] = dict(url=link, views=views, duration=dur, user=up or acct, acct=acct)
         q.put(("find", 2 + (ai + 1) / len(accounts) * 90,
                f"Instagram  ·  @{acct}  ·  {len(cands)} reels over {MIN_VIEWS:,} views"))
+        time.sleep(random.uniform(2.0, 4.0))
     per, picks = {}, []
     for c in sorted(cands.values(), key=lambda c: -c["views"]):
         if per.get(c["acct"], 0) >= 10:
@@ -354,7 +420,7 @@ def run_find(opts, q, cancel):
                 return
             if not picks:
                 q.put(("find_end", [], "No Instagram reels found. " + (" | ".join(notes[:2]) or "") +
-                       "  → Log in to Instagram in your browser and run USE_COOKIES.bat."))
+                       "  → Log in to Instagram in Firefox, close it, run USE_COOKIES.bat (pick Firefox), then run this again."))
                 return
             for c in picks:
                 KIND_BY_URL[c["url"]] = "insta"
