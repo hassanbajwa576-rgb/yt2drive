@@ -196,8 +196,22 @@ def _find_aleks(want, used, cancel, q):
                 TITLE_BY_URL[f"https://www.youtube.com/watch?v={m.group(1)}"] = row.get("title", "")
     pool = list(have.values())
     random.shuffle(pool)
-    q.put(("find", 20, f"Aleks Font: {len(pool)} uploaded videos available to reuse"))
-    return pool[:want]
+    import yt2drive as Y
+    links = {}
+    for row in csv.DictReader(open(p, encoding="utf-8", errors="ignore")):
+        m = re.search(r"v=([\w-]{11})", row.get("source_url", ""))
+        if m:
+            links[m.group(1)] = row.get("direct_mp4_link", "")
+    good = []
+    for n, v in enumerate(pool):
+        if cancel.is_set() or len(good) >= want:
+            break
+        ok, _ = Y.check_link(links.get(v["id"], ""))  # skip videos deleted from Drive
+        if ok:
+            good.append(v)
+        q.put(("find", 2 + min(28, n / max(1, min(len(pool), want * 2)) * 28),
+               f"Aleks Font: {len(good)} working links  ·  checked {n + 1} of {len(pool)}"))
+    return good
 
 
 def _cookie_conf():
