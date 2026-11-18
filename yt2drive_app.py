@@ -44,6 +44,7 @@ INSTA_ACCOUNTS = [a.strip().lstrip("@") for a in sys.argv[sys.argv.index("--inst
 MIN_VIEWS = int(sys.argv[sys.argv.index("--min-views") + 1]) if "--min-views" in sys.argv[:-1] else 1_000_000
 PICKS_FILE = sys.argv[sys.argv.index("--picks") + 1] if "--picks" in sys.argv[:-1] else None
 DIRECT_BY_URL = {}  # reel page url -> direct video address (from a picks file)
+VIRAL = "--viral" in sys.argv
 KIND_BY_URL = {}
 CREDIT_BY_URL = {}
 TITLE_BY_URL = {}
@@ -242,6 +243,9 @@ def _load_picks():
         if c.get("title"):
             TITLE_BY_URL[u] = c["title"]
     return urls
+
+
+NOT_VIRAL_RE = re.compile(r"official (music )?video|lyrics?|full movie|trailer|\bnews\b|nsfw|18\+|gambling|casino|roblox|fnaf|asmr|reaction|tutorial|how to|sponsor|giveaway|podcast|interview|\bai\b|sora|anime|naruto|dragon ?ball", re.I)
 
 
 def _cookie_conf():
@@ -458,7 +462,7 @@ def run_find(opts, q, cancel):
         for i, t in enumerate(topics):
             if cancel.is_set() or len(found) >= want * 3:
                 break
-            for sp in SPS:
+            for sp in (["CAMSAhgB"] if VIRAL else SPS):  # VIRAL: most viewed first, under 4 minutes
                 url = f"https://www.youtube.com/results?search_query={t.replace(' ', '+')}&sp={sp}"
                 out = _ytdlp(["--flat-playlist", "--no-warnings", "--print",
                               "%(id)s|%(view_count)s|%(duration)s|%(channel)s|%(title)s", url])
@@ -470,7 +474,10 @@ def run_find(opts, q, cancel):
                     d = _num(dur)
                     if vid in used or vid in found or not ((60 if COMPILATION else 10) <= d <= 180) or _num(views) < 500:
                         continue
-                    if COMPILATION:
+                    if VIRAL:
+                        if _num(views) < MIN_VIEWS or not (10 <= d <= 90) or NOT_VIRAL_RE.search(title + " " + ch):
+                            continue
+                    elif COMPILATION:
                         if not COMP_RE.search(title) or NOT_COMP_RE.search(title):
                             continue
                     elif CREATORS:
@@ -489,7 +496,7 @@ def run_find(opts, q, cancel):
         for n, v in enumerate(cands):
             if cancel.is_set() or len(picks) >= want:
                 break
-            if per.get(v["channel"], 0) >= (8 if (CARTOON or CREATORS or COMPILATION) else 3):
+            if per.get(v["channel"], 0) >= (4 if VIRAL else (8 if (CARTOON or CREATORS or COMPILATION) else 3)):
                 continue
             ok = True
             if opts["cc_only"]:
@@ -521,6 +528,13 @@ def run_find(opts, q, cancel):
             q.put(("global", f"{len(comp_urls)} compilations + {len(ale_urls)} Aleks Font videos"))
             q.put(("find_end", urls, ""))
             return
+        if VIRAL:
+            for v in picks:
+                u = f"https://www.youtube.com/watch?v={v['id']}"
+                KIND_BY_URL[u] = "viral"
+                CREDIT_BY_URL[u] = f"{v['channel']} (YouTube)"
+            if picks:
+                q.put(("global", f"{len(picks)} shorts, {picks[0]['views']:,} to {picks[-1]['views']:,} views"))
         (HERE / "find_picks.json").write_text(json.dumps(picks, ensure_ascii=False, indent=1), encoding="utf-8")
         urls = [f"https://www.youtube.com/watch?v={v['id']}" for v in picks]
         q.put(("find_end", urls, ""))
@@ -1330,7 +1344,7 @@ class App(tk.Tk):
             from sched_lib import schedule_items
             cfg = json.loads((HERE / "worker_config.json").read_text(encoding="utf-8"))
             sched = {"interval": SCHED_INT, "instagram": True, "linkedin": True,
-                     "kind": "insta" if (INSTA_ACCOUNTS or PICKS_FILE) else ("creators" if CREATORS else ("compilation" if COMPILATION else "cartoon"))}
+                     "kind": "viral" if VIRAL else ("insta" if (INSTA_ACCOUNTS or PICKS_FILE) else ("creators" if CREATORS else ("compilation" if COMPILATION else "cartoon")))}
             if SCHED_START:
                 sched["startTime"] = SCHED_START
             schedule_items(items, sched,
